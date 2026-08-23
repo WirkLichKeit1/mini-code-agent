@@ -16,8 +16,8 @@ app.use(express.static("public"));
 await fs.mkdir(WORKSPACE, { recursive: true });
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = "gemini-2.5-flash";
-const API_URL = `https://generativelanguege.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const MODEL = "gemini-3.6-flash";
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 // ---------- Tool schema (o que o modelo "enxerga") ----------
 const tools = [
@@ -39,9 +39,9 @@ const tools = [
                 parameters: {
                     type: "object",
                     properties: {
-                        path: { type: "string", description: "Caminho relativo dentro do workspace."},
-                        required: ["path"]
-                    }
+                        path: { type: "string", description: "Caminho relativo dentro do workspace."}
+                    },
+                    required: ["path"]
                 }
             },
             {
