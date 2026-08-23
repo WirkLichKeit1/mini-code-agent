@@ -50,6 +50,7 @@ Thumbs.db
 
 .replit
 .replitignore
-.pnpm-lock.yaml
-.pnpm-workspace.yaml
-pagcke-lock.json
+.npmrc
+pnpm-lock.yaml
+pnpm-workspace.yaml
+package-lock.json
