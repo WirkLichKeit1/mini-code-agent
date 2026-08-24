@@ -210,28 +210,6 @@ Pontos importantes:
 - Não há testes automatizados no repositório atual.
 - A interface é propositalmente simples e não usa framework frontend.
 
-## Observação sobre o `package.json`
-
-O arquivo `package.json` atualmente declara:
-
-```json
-"start": "node server.js"
-```
-
-mas o entrypoint existente no projeto é `index.js`.
-
-Por isso, no estado atual, prefira iniciar com:
-
-```bash
-node index.js
-```
-
-ou ajuste o script `start` para apontar para `index.js` antes de usar:
-
-```bash
-npm start
-```
-
 ## Desenvolvimento
 
 Uma forma simples de trabalhar no projeto é:
