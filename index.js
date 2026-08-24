@@ -16,7 +16,7 @@ app.use(express.static("public"));
 await fs.mkdir(WORKSPACE, { recursive: true });
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = "gemini-3.6-flash";
+const MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 // ---------- Tool schema (o que o modelo "enxerga") ----------
@@ -119,20 +119,34 @@ const toolImplementations = {
 };
 
 // --------- Loop do agente ---------
-async function callGemini(contents) {
+async function callGemini(contents, retries = 2) {
     const res = await fetch(API_URL, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ contents, tools})
+        body: JSON.stringify({
+            contents,
+            tools,
+            systemInstruction: {
+                parts: [{ text: "Este ambiente só tem Python3 e Node.js instalados. Prefira escrever scripts nessas linguagens, e caso o usuário peça por outra diga que você pode apenas entregar o código fonte mas que a opção de executar nessa linguagem ficará indisponível por ter apenas Node.js e Python3 no seu ambiente."}]
+            }
+        })
     });
     const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
+    if (data.error) {
+        if (data.error.code === 429 && retries > 0) {
+            await new Promise((r) => setTimeout(r, 1500)); // espera 15s e tenta de novo
+            return callGemini(contents, retries - 1);
+        }
+        throw new Error(data.error.message);
+    }
     return data;
 }
 
 const MAX_STEPS = 6;
 
 app.post("/api/chat", async (req, res) => {
+    const actionLog = [];
+    
     try {
         if (!GEMINI_API_KEY) {
             return res.status(500).json({
@@ -142,7 +156,6 @@ app.post("/api/chat", async (req, res) => {
 
         const { message, history = [] } = req.body;
         let contents = [...history, { role: "user", parts: [{ text: message }] }];
-        const actionLog = [];
 
         for (let step = 0; step < MAX_STEPS; step++) {
             const data = await callGemini(contents);
@@ -181,7 +194,7 @@ app.post("/api/chat", async (req, res) => {
             actions: actionLog
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, actions: actionLog });
     }
 });
 

@@ -197,6 +197,7 @@
                 });
                 const data = await res.json();
                 if (data.error) {
+                    addActions(data.actions);
                     addMessage("error", data.error);
                 } else {
                     addActions(data.actions);
