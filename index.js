@@ -19,6 +19,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
+const SYSTEM_INSTRUCTION = "Este ambiente só tem Python3 e Node.js instalados. Prefira escrever scripts nessas linguagens, e caso o usuário peça por outra diga que você pode apenas entregar o código fonte mas que a opção de executar nessa linguagem ficará indisponível por ter apenas Node.js e Python3 no seu ambiente."
+
 // ---------- Tool schema (o que o modelo "enxerga") ----------
 const tools = [
     {
@@ -29,7 +31,7 @@ const tools = [
                 parameters: {
                     type: "object",
                     properties: {
-                        subpath: { type: "string", description: "Subpasta a listar (padrao: raiz do workspace."}
+                        subpath: { type: "string", description: "Subpasta a listar (padrao: raiz do workspace)"}
                     }
                 }
             },
@@ -58,7 +60,7 @@ const tools = [
             },
             {
                 name: "run_command",
-                description: "Executa um comando de shell dentro do workspace (ex.: rodar um script Python/Node).",
+                description: "Executa um comando de shell dentro do workspace (ex.: rodar um script Python/Node). use com cautela",
                 parameters: {
                     type: "object",
                     properties: {
@@ -118,7 +120,7 @@ const toolImplementations = {
     run_command: runCommand
 };
 
-// --------- Loop do agente ---------
+// --------- Loop do agente (com retry em caso de limite de taxa) ---------
 async function callGemini(contents, retries = 2) {
     const res = await fetch(API_URL, {
         method: "POST",
@@ -126,9 +128,7 @@ async function callGemini(contents, retries = 2) {
         body: JSON.stringify({
             contents,
             tools,
-            systemInstruction: {
-                parts: [{ text: "Este ambiente só tem Python3 e Node.js instalados. Prefira escrever scripts nessas linguagens, e caso o usuário peça por outra diga que você pode apenas entregar o código fonte mas que a opção de executar nessa linguagem ficará indisponível por ter apenas Node.js e Python3 no seu ambiente."}]
-            }
+            systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }
         })
     });
     const data = await res.json();
@@ -150,7 +150,8 @@ app.post("/api/chat", async (req, res) => {
     try {
         if (!GEMINI_API_KEY) {
             return res.status(500).json({
-                error: "GEMINI_API_KEY nao configurada."
+                error: "GEMINI_API_KEY nao configurada.",
+                actions: actionLog
             });
         }
 
@@ -161,6 +162,7 @@ app.post("/api/chat", async (req, res) => {
             const data = await callGemini(contents);
             const candidate = data.candidates?.[0];
             const parts = candidate?.content?.parts || [];
+            
             const functionCalls = parts.filter((p) => p.functionCall);
 
             if (functionCalls.length === 0) {
@@ -195,6 +197,50 @@ app.post("/api/chat", async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ error: err.message, actions: actionLog });
+    }
+});
+
+// --------- Rotas de introspecção do workspace (para interface) ---------
+app.get("/api/info", (req, res) => {
+    res.json({ model: MODEL });
+});
+
+async function buildTree(dir, base = "") {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const result = [];
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (e.name.startsWith(".")) continue;
+        const rel = base ? `${base}/${e.name}` : e.name;
+        if (e.isDirectory()) {
+            result.push({
+                name: e.name,
+                path: rel,
+                type: "dir",
+                children: await buildTree(path.join(dir, e.name), rel)
+            });
+        } else {
+            const stat = await fs.stat(path.join(dir, e.name));
+            result.push({ name: e.name, path: rel, type: "file", size: stat.size, mtime: stat.mtimeMs });
+        }
+    }
+    return result;
+}
+
+app.get("/api/files", async (req, res) => {
+    try {
+        const tree = await buildTree(WORKSPACE);
+        res.json({ tree });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get("/api/file", async (req, res) => {
+    try {
+        const content = await readFile({ path: req.query.path || ""});
+        res.json({ content });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
