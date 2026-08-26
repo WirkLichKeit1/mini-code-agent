@@ -96,9 +96,15 @@ async function readFile(args) {
 
 async function writeFile(args) {
     const filePath = safePath(args.path);
+    let before = null;
+    try {
+        before = await fs.readFile(filePath, "utf-8");
+    } catch {
+        before = null; // arquivo novo
+    }
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, args.content, "utf-8");
-    return `Arquivo salvo: ${args.path}`;
+    return { message: `Arquivo salvo: ${args.path}`, after: args.content };
 }
 
 async function runCommand(args) {
@@ -107,9 +113,17 @@ async function runCommand(args) {
             cwd: WORKSPACE,
             timeout: 15000
         });
-        return `stdout:\n${stdout || "(vazio)"}\n${stderr || "(vazio)"}`;
+        return {
+            message: `stdout:\n${stdout || "(vazio)"}\n${stderr || "(vazio)"}`,
+            stdout: stdout || "",
+            stderr: stderr || ""
+        };
     } catch (err) {
-        return `Erro ao executar comando: ${err.message}`;
+        return {
+            message: `Erro ao executar comando: ${err.message}`,
+            stdout: "",
+            stderr: err.message
+        };
     }
 }
 
@@ -121,7 +135,7 @@ const toolImplementations = {
 };
 
 // --------- Loop do agente (com retry em caso de limite de taxa) ---------
-async function callGemini(contents, retries = 2) {
+async function callGemini(contents, onRetry, retries = 2) {
     const res = await fetch(API_URL, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -134,8 +148,10 @@ async function callGemini(contents, retries = 2) {
     const data = await res.json();
     if (data.error) {
         if (data.error.code === 429 && retries > 0) {
-            await new Promise((r) => setTimeout(r, 1500)); // espera 15s e tenta de novo
-            return callGemini(contents, retries - 1);
+            const waitMs = 15000;
+            onRetry?.(waitMs);
+            await new Promise((r) => setTimeout(r, waitMs)); // espera 15s e tenta de novo
+            return callGemini(contents, onRetry, retries - 1);
         }
         throw new Error(data.error.message);
     }
@@ -146,12 +162,22 @@ const MAX_STEPS = 6;
 
 app.post("/api/chat", async (req, res) => {
     const actionLog = [];
+    let apiCalls = 0;
+
+    const onRetry = (waitMs) => {
+        actionLog.push({
+            tool: "_system",
+            args: {},
+            result: `Limite de requisições atingido. Aguardando ${Math.round(waitMs / 1000)}s antes de tentar de novo...`
+        });
+    };
     
     try {
         if (!GEMINI_API_KEY) {
             return res.status(500).json({
                 error: "GEMINI_API_KEY nao configurada.",
-                actions: actionLog
+                actions: actionLog,
+                apiCalls
             });
         }
 
@@ -159,7 +185,9 @@ app.post("/api/chat", async (req, res) => {
         let contents = [...history, { role: "user", parts: [{ text: message }] }];
 
         for (let step = 0; step < MAX_STEPS; step++) {
+            apiCalls++;
             const data = await callGemini(contents);
+            
             const candidate = data.candidates?.[0];
             const parts = candidate?.content?.parts || [];
             
@@ -168,7 +196,7 @@ app.post("/api/chat", async (req, res) => {
             if (functionCalls.length === 0) {
                 const text = parts.map((p) => p.text || "").join("");
                 contents.push({ role: "model", parts });
-                return res.json({ reply: text, history: contents, actions: actionLog });
+                return res.json({ reply: text, history: contents, actions: actionLog, apiCalls });
             }
 
             contents.push({ role: "model", parts });
@@ -176,15 +204,22 @@ app.post("/api/chat", async (req, res) => {
             const functionResponses = [];
             for (const fc of functionCalls) {
                 const { name, args } = fc.functionCall;
-                let result;
+                let resultText;
+                let extra = {};
                 try {
-                    result = await toolImplementations[name](args || {});
+                    const raw = await toolImplementations[name](args || {});
+                    if (raw && typeof raw === "object") {
+                        resultText = raw.message;
+                        extra = raw;
+                    } else {
+                        resultText = raw;
+                    }
                 } catch (err) {
                     result = `Erro: ${err.message}`;
                 }
-                actionLog.push({ tool: name, args, result });
+                actionLog.push({ tool: name, args, result: resultText, ...extra });
                 functionResponses.push({
-                    functionResponse: { name, response: { result } }
+                    functionResponse: { name, response: { result: resultText } }
                 });
             }
             contents.push({ role: "user", parts: functionResponses });
@@ -193,10 +228,11 @@ app.post("/api/chat", async (req, res) => {
         res.json({
             reply: "Atingi o limite de passos nessa rodada. pode pedir para eu continuar.",
             history: contents,
-            actions: actionLog
+            actions: actionLog,
+            apiCalls
         });
     } catch (err) {
-        res.status(500).json({ error: err.message, actions: actionLog });
+        res.status(500).json({ error: err.message, actions: actionLog, apiCalls });
     }
 });
 
@@ -228,8 +264,8 @@ async function buildTree(dir, base = "") {
 
 app.get("/api/files", async (req, res) => {
     try {
-        const tree = await buildTree(WORKSPACE);
-        res.json({ tree });
+        const treeData = await buildTree(WORKSPACE);
+        res.json({ tree: treeData });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
