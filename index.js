@@ -104,7 +104,7 @@ async function writeFile(args) {
     }
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, args.content, "utf-8");
-    return { message: `Arquivo salvo: ${args.path}`, after: args.content };
+    return { message: `Arquivo salvo: ${args.path}`, before, after: args.content };
 }
 
 async function runCommand(args) {
@@ -215,7 +215,7 @@ app.post("/api/chat", async (req, res) => {
                         resultText = raw;
                     }
                 } catch (err) {
-                    result = `Erro: ${err.message}`;
+                    resultText = `Erro: ${err.message}`;
                 }
                 actionLog.push({ tool: name, args, result: resultText, ...extra });
                 functionResponses.push({
