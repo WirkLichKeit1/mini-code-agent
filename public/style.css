@@ -194,6 +194,7 @@ details.action summary::before {
 details.action[open] summary::before { transform: rotate(90deg); color: var(--amber); }
 details.action summary .tool-name { color: var(--amber); }
 details.action summary .tool-name::before { content: "$ "; color: var(--amber-dim); }
+details.action summary .tool-name.destructive { color: var(--error); }
 details.action .result {
     padding: 8px 10px 10px 24px;
     font-size: 11.5px;

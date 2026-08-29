@@ -169,7 +169,8 @@ function addActions(actions) {
     det.className = "action";
     const summary = document.createElement("summary");
     const argsStr = JSON.stringify(a.args || {});
-    summary.innerHTML = `<span class="tool-name">${a.tool}</span><span style="color:var(--muted)">${argsStr}</span>`;
+    const toolClass = a.tool === "delete_file" ? "tool-name destructive" : "tool-name";
+    summary.innerHTML = `<span class="${toolClass}">${a.tool}</span><span style="color:var(--muted)">${argsStr}</span>`;
     det.appendChild(summary);
 
     if (a.tool === "run_command") {

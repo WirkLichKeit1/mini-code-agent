@@ -19,7 +19,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-const SYSTEM_INSTRUCTION = "Este ambiente só tem Python3 e Node.js instalados. Prefira escrever scripts nessas linguagens, e caso o usuário peça por outra diga que você pode apenas entregar o código fonte mas que a opção de executar nessa linguagem ficará indisponível por ter apenas Node.js e Python3 no seu ambiente."
+const SYSTEM_INSTRUCTION = "Este ambiente só tem Python3 e Node.js instalados. Prefira escrever scripts nessas linguagens, e caso o usuário peça por outra diga que você pode apenas entregar o código fonte mas que a opção de executar nessa linguagem está indisponível por ter apenas Node.js e Python3 no seu ambiente."
 
 // ---------- Tool schema (o que o modelo "enxerga") ----------
 const tools = [
@@ -67,6 +67,40 @@ const tools = [
                         command: { type: "string", description: "Comando a executar"}
                     },
                     required: ["command"]
+                }
+            },
+            {
+                name: "delete_file",
+                description: "Remove um arquivo ou pasta (e seu conteudo) do workspace. Acao destrutiva e irreversivel.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        path: { type: "string", description: "Caminho relativo dentro do workspace a ser removido" }
+                    },
+                    required: ["path"]
+                }
+            },
+            {
+                name: "create_folder",
+                description: "Cria uma pasta (e subpastas necessarias) dentro do workspace, mesmo sem nenhum arquivo dentro dela ainda.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        path: { type: "string", description: "Caminho relativo da pasta a criar dentro do workspace" }
+                    },
+                    required: ["path"]
+                }
+            },
+            {
+                name: "search_in_files",
+                description: "Busca um texto em todos os arquivos do workspace (recursivamente), retornando arquivo, numero da linha e trecho de cada ocorrencia.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        query: { type: "string", description: "Texto a ser buscado" },
+                        case_sensitive: { type: "boolean", description: "Se a busca deve diferenciar maiusculas/minusculas (padrao: false)" }
+                    },
+                    required: ["query"]
                 }
             }
         ]
@@ -127,11 +161,80 @@ async function runCommand(args) {
     }
 }
 
+async function deleteFile(args) {
+    const filePath = safePath(args.path);
+    let stat;
+    try {
+        stat = await fs.stat(filePath);
+    } catch {
+        return { message: `Não encontrado: ${args.path}`};
+    }
+    if (stat.isDirectory()) {
+        await fs.rm(filePath, { recursive: true, force: true });
+        return { message: `Pasta removida: ${args.path}`};
+    }
+    await fs.unlink(filePath);
+    return { message: `Arquivo removido: ${args.path}`};
+}
+
+async function createFolder(args) {
+    const dirPath = safePath(args.path);
+    await fs.mkdir(dirPath, { recursive: true });
+    return { message: `Pasta criada: ${args.path}` };
+}
+
+async function searchInFiles(args) {
+    const query = args.query;
+    const caseSensitive = !!args.case_sensitive;
+    const needle = caseSensitive ? query : query.toLowerCase();
+    const matches = [];
+
+    async function walk(dir, base) {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const e of entries) {
+            if (e.name.startsWith(".")) continue;
+            const rel = base ? `${base}/${e.name}` : e.name;
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) {
+                await walk(full, rel);
+            } else {
+                let content;
+                try {
+                    content = await fs.readFile(full, "utf-8");
+                } catch {
+                    continue; // provavelmente um arquivo binario, pula
+                }
+                content.split("\n").forEach((line, idx) => {
+                    const haystack = caseSensitive ? line : line.toLowerCase();
+                    if (haystack.includes(needle)) {
+                        matches.push({ path: rel, line: idx + 1, text: line.trim().slice(0, 200) });
+                    }
+                });
+            }
+        }
+    }
+
+    await walk(WORKSPACE, "");
+
+    if (matches.length === 0) {
+        return { message: `Nenhuma ocorrência de "${query}" encontrada.`, matches: [] };
+    }
+    const preview = matches.slice(0, 50).map((m) => `${m.path}:${m.line}: ${m.text}`).join("\n");
+    const suffix = matches.length > 50 ? `\n... e mais ${matches.length - 50} ocorrência(s)` : "";
+    return {
+        message: `${matches.length} ocorrência(s) de "${query}" encontrada(s):\n${preview}${suffix}`,
+        matches
+    };
+}
+
 const toolImplementations = {
     list_files: listFiles,
     read_file: readFile,
     write_file: writeFile,
-    run_command: runCommand
+    run_command: runCommand,
+    delete_file: deleteFile,
+    create_folder: createFolder,
+    search_in_files: searchInFiles
 };
 
 // --------- Loop do agente (com retry em caso de limite de taxa) ---------
@@ -186,7 +289,7 @@ app.post("/api/chat", async (req, res) => {
 
         for (let step = 0; step < MAX_STEPS; step++) {
             apiCalls++;
-            const data = await callGemini(contents);
+            const data = await callGemini(contents, onRetry);
             
             const candidate = data.candidates?.[0];
             const parts = candidate?.content?.parts || [];
