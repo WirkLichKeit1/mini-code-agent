@@ -10,7 +10,8 @@ backend Node.js simples.
 ```
 index.js                  → servidor Express + loop do agente
 system-instructions.md    → instruções fixas do agente (ambiente, regras de segurança)
-replit.nix                → dependências de sistema (adiciona Python3 ao ambiente)
+.env.example               → modelo do arquivo de variáveis de ambiente
+replit.nix                 → dependências de sistema extras (só usado no Replit)
 package.json
 public/
   index.html               → estrutura da interface
@@ -19,19 +20,47 @@ public/
 workspace/                 → sandbox onde o agente cria/edita/roda arquivos
 ```
 
-## Como rodar no Replit (pelo celular)
+## Requisitos
 
-1. Crie um novo Repl do tipo **Node.js**.
-2. Suba (ou cole) todos os arquivos listados acima, mantendo a estrutura de pastas.
-3. Pegue uma chave gratuita em https://aistudio.google.com/apikey (não pede cartão).
-4. No Replit, abra **Secrets** (ícone de cadeado) e crie:
-   - key: `GEMINI_API_KEY`
-   - value: sua chave copiada
-5. No Shell, rode:
+- [Node.js](https://nodejs.org) 18 ou mais recente (o projeto usa `fetch` nativo, sem biblioteca extra pra chamadas HTTP)
+- Uma chave gratuita da API do Gemini — obtida em https://aistudio.google.com/apikey (não pede cartão de crédito)
+
+> **Sobre o Python:** o `system-instructions.md` diz ao agente que Python3 está disponível. Isso é garantido automaticamente no Replit (via `replit.nix`). Rodando localmente ou em outro servidor, isso depende de você já ter Python3 instalado na máquina — se não tiver, o agente vai tentar rodar scripts `.py` e falhar. Nesse caso, edite o `system-instructions.md` removendo a menção a Python, ou instale o Python3 no seu ambiente.
+
+## Como rodar
+
+Funciona em qualquer sistema operacional (Windows, macOS, Linux) e em qualquer lugar que rode Node.js — sua máquina, um servidor, ou um ambiente de nuvem como Replit, CodeSandbox, Gitpod, etc. Abaixo estão os dois caminhos mais comuns.
+
+### Rodando localmente (ou em qualquer VPS/servidor próprio)
+
+1. Clone o repositório e entre na pasta:
+   ```
+   git clone <url-do-seu-repositório>
+   cd mini-code-agent
+   ```
+2. Instale as dependências:
    ```
    npm install
    ```
-6. Aperte **Run**.
+3. Copie o arquivo de exemplo de variáveis de ambiente e cole sua chave:
+   ```
+   cp .env.example .env
+   ```
+   Depois edite o `.env` e substitua `sua-chave-aqui` pela chave que você pegou no Google AI Studio.
+4. Rode o servidor:
+   ```
+   npm start
+   ```
+5. Abra `http://localhost:3000` no navegador.
+
+O `.env` nunca deve ser enviado ao GitHub — confirme que ele está listado no seu `.gitignore` (o `.env.example`, sem a chave real, é o que fica público).
+
+### Rodando no Replit (ou serviços de nuvem parecidos)
+
+1. Crie um Repl novo importando este repositório diretamente do GitHub (ou faça upload manual dos arquivos), escolhendo o template **Node.js**.
+2. No Shell do Repl, rode `npm install`.
+3. Em vez de `.env` (que não é seguro deixar num Repl público), use o painel de **Secrets** do próprio Replit: crie uma entrada com key `GEMINI_API_KEY` e value igual à sua chave. O código já lê a variável de ambiente do sistema operacional de qualquer forma, então funciona sem mudar nada.
+4. Aperte **Run**.
 
 ## Ferramentas disponíveis pro agente
 

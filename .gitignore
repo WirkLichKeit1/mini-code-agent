@@ -48,7 +48,8 @@ Thumbs.db
 .cache/
 .local/
 
-replit.nix
+.env
+
 .replit
 .replitignore
 .npmrc
