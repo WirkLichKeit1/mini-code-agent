@@ -19,7 +19,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-const SYSTEM_INSTRUCTION = "Este ambiente só tem Python3 e Node.js instalados. Prefira escrever scripts nessas linguagens, e caso o usuário peça por outra diga que você pode apenas entregar o código fonte mas que a opção de executar nessa linguagem está indisponível por ter apenas Node.js e Python3 no seu ambiente."
+const SYSTEM_INSTRUCTION = await fs.readFile(path.join(__dirname, "system_instructions.md"), "utf-8");
 
 // ---------- Tool schema (o que o modelo "enxerga") ----------
 const tools = [
