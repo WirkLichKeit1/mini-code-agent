@@ -375,22 +375,47 @@ details.action .result {
     padding: 10px 8px;
     font-size: 13px;
 }
-#tree ul { list-style: none; margin: 0; padding-left: 14px; }
+#tree ul { list-style: none; margin: 0; padding-left: 16px; }
 #tree > ul { padding-left: 0; }
 #tree li { margin: 1px 0; }
 .tree-file, .tree-dir {
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 6px 8px;
+    padding: 6px 6px;
     border-radius: 5px;
     cursor: pointer;
 }
 .tree-file:hover, .tree-dir:hover { background: var(--panel); }
-.tree-dir { color: var(--muted); cursor: default; font-size: 12px; letter-spacing: 0.02em; }
-.tree-dir:hover { background: transparent; }
-.tree-file .fname { color: var(--text); }
-.tree-file .touched-dot {
+.tree-dir { color: var(--text); font-size: 12.5px; }
+.tree-dir .chevron { display: flex; color: var(--muted); flex-shrink: 0; transition: transform 0.15s; }
+.tree-dir .chevron.open { transform: rotate(90deg); }
+.tree-dir .dir-icon { display: flex; color: var(--amber-dim); flex-shrink: 0; }
+.tree-dir .item-count { margin-left: auto; font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.tree-file .fname, .tree-dir .fname { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-file .fmeta { margin-left: auto; font-size: 9.5px; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
+
+.file-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 17px;
+    padding: 0 3px;
+    border-radius: 4px;
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+.badge-amber { background: rgba(232, 163, 61, 0.15); color: var(--amber); }
+.badge-blue { background: rgba(111, 168, 224, 0.15); color: var(--user); }
+.badge-teal { background: rgba(79, 201, 176, 0.15); color: var(--touched); }
+.badge-purple { background: rgba(217, 184, 255, 0.15); color: #d9b8ff; }
+.badge-pink { background: rgba(224, 143, 192, 0.15); color: #e08fc0; }
+.badge-gray { background: rgba(122, 128, 134, 0.15); color: var(--muted); }
+
+.tree-file .touched-dot, .tree-dir .touched-dot {
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--touched);
     box-shadow: 0 0 6px var(--touched);
@@ -399,12 +424,30 @@ details.action .result {
 }
 @media (prefers-reduced-motion: reduce) { .touched-dot { animation: none; } }
 @keyframes touchedPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-.tree-file .touched-label {
-    font-size: 10px;
-    color: var(--touched);
-    margin-left: auto;
+.tree-empty {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 30px 10px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
 }
-.tree-empty { color: var(--muted); font-size: 12px; padding: 10px; }
+.tree-empty svg { width: 26px; height: 26px; opacity: 0.4; }
+
+.drawer-filter { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.drawer-filter input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    padding: 7px 10px;
+}
+.drawer-filter input:focus-visible { outline: 2px solid var(--amber); }
 
 /* file preview */
 #preview {
