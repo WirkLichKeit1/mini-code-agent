@@ -1,231 +1,117 @@
 # mini-code-agent
 
-Um agente de programação web minimalista que usa o **Google Gemini** para conversar com o usuário e executar operações controladas dentro de um diretório `workspace/`.
+Um agente com tool use que lista, lê, cria/edita, apaga, busca e roda arquivos
+dentro de uma pasta `workspace/` isolada — sua "casca de testes" segura.
+Roda inteiramente de graça, usando a API do Gemini (Google AI Studio) e um
+backend Node.js simples.
 
-A interface permite conversar com o agente, acompanhar as ferramentas utilizadas e navegar pelos arquivos do workspace em tempo real.
+## Estrutura do projeto
 
-> **Status:** protótipo funcional / projeto experimental. Antes de usar em produção, revise principalmente a execução de comandos do sistema e o gerenciamento da chave da API.
-
-## Visão geral
-
-O projeto é composto por um servidor Node.js com Express e uma interface HTML/CSS/JavaScript sem framework.
-
-O fluxo principal é:
-
-1. O usuário envia uma mensagem pela interface.
-2. O navegador faz `POST /api/chat`.
-3. O servidor envia a conversa ao Gemini junto com as ferramentas disponíveis.
-4. O Gemini pode solicitar chamadas de ferramentas.
-5. O servidor executa as ferramentas no `workspace/` e devolve os resultados ao modelo.
-6. O processo continua por até **6 passos** por mensagem.
-7. Quando o modelo produz uma resposta final, ela é exibida no chat.
-8. A interface pode atualizar a árvore de arquivos e visualizar o conteúdo dos arquivos.
-
-### Ferramentas disponíveis para o agente
-
-| Ferramenta | Função |
-| --- | --- |
-| `list_files` | Lista arquivos e diretórios do workspace. |
-| `read_file` | Lê o conteúdo de um arquivo. |
-| `write_file` | Cria ou sobrescreve um arquivo. |
-| `run_command` | Executa um comando de shell dentro do workspace. |
-
-O agente é instruído a priorizar **Python 3** e **Node.js**, pois esses são os ambientes de execução considerados disponíveis pelo projeto.
-
-## Estrutura
-
-```text
-mini-code-agent/
-├── index.js             # servidor Express, integração Gemini e ferramentas
-├── package.json         # metadados e dependências Node.js
-├── public/
-│   ├── index.html       # interface
-│   ├── script.js        # chat, workspace e chamadas à API
-│   └── style.css        # estilos da interface
-├── workspace/           # criado automaticamente na inicialização
-└── README.md
+```
+index.js                  → servidor Express + loop do agente
+system-instructions.md    → instruções fixas do agente (ambiente, regras de segurança)
+replit.nix                → dependências de sistema (adiciona Python3 ao ambiente)
+package.json
+public/
+  index.html               → estrutura da interface
+  style.css                → tema visual (terminal âmbar)
+  script.js                → lógica do chat, workspace e preview
+workspace/                 → sandbox onde o agente cria/edita/roda arquivos
 ```
 
-O diretório `workspace/` é criado automaticamente pelo servidor se ainda não existir.
+## Como rodar no Replit (pelo celular)
 
-## Requisitos
+1. Crie um novo Repl do tipo **Node.js**.
+2. Suba (ou cole) todos os arquivos listados acima, mantendo a estrutura de pastas.
+3. Pegue uma chave gratuita em https://aistudio.google.com/apikey (não pede cartão).
+4. No Replit, abra **Secrets** (ícone de cadeado) e crie:
+   - key: `GEMINI_API_KEY`
+   - value: sua chave copiada
+5. No Shell, rode:
+   ```
+   npm install
+   ```
+6. Aperte **Run**.
 
-- **Node.js** com suporte a ES Modules e `fetch` nativo.
-- **npm**.
-- Uma chave de API do **Google Gemini**.
-- Python 3, caso você queira que o agente execute scripts Python.
+## Ferramentas disponíveis pro agente
 
-O projeto usa atualmente o modelo:
+| Ferramenta | O que faz |
+|---|---|
+| `list_files` | Lista arquivos e pastas de um diretório do workspace |
+| `read_file` | Lê o conteúdo de um arquivo |
+| `write_file` | Cria ou sobrescreve um arquivo (a UI mostra o diff quando já existia) |
+| `run_command` | Executa um comando de shell dentro do workspace (Node.js e Python3 disponíveis) |
+| `delete_file` | Remove um arquivo ou pasta — o agente **confirma com você antes**, por instrução em `system-instructions.md` |
+| `create_folder` | Cria uma pasta vazia (ou com subpastas) mesmo sem arquivos dentro ainda |
+| `search_in_files` | Busca um texto em todos os arquivos do workspace, retornando arquivo + linha + trecho |
 
-```text
-gemini-3.1-flash-lite
-```
+Todas são restritas à pasta `workspace/` — o agente nunca alcança o próprio
+código do servidor.
 
-## Instalação
+## Interface
 
-Clone ou extraia o projeto e instale as dependências:
+- **Chat** com log de ações expansível: cada chamada de ferramenta vira uma
+  linha que você abre pra ver o resultado completo.
+- **Diff visual** nas edições de arquivo (`write_file`): linhas verdes
+  (adicionadas) e vermelhas (removidas) quando o arquivo já existia.
+- **Saída em estilo terminal** pro `run_command`, com stdout e stderr
+  separados e coloridos.
+- **Realce de sintaxe** (via highlight.js) no preview de arquivos e em blocos
+  de código que o agente manda no chat.
+- **Painel de workspace** ao vivo: árvore de arquivos com ícone por tipo,
+  pastas dobráveis, contagem de itens, tamanho e data de modificação por
+  arquivo, campo de busca, e um indicador pulsante nos arquivos/pastas
+  tocados na sessão atual.
+- **Barra de estatísticas**: quantas chamadas de API foram feitas na sessão e
+  na última mensagem (contagem local, não é a cota oficial do Google).
+- **Aviso automático de limite de taxa**: se a API responder com erro 429, o
+  servidor espera e tenta de novo sozinho, e isso aparece como uma nota
+  visível no log em vez de simplesmente falhar.
 
-```bash
-npm install
-```
+## Como funciona (resumo da arquitetura)
 
-Configure a variável de ambiente com sua chave do Gemini.
+`server.js` expõe `POST /api/chat`. A cada mensagem:
 
-### Linux / macOS
+1. O histórico da conversa + a mensagem nova são enviados ao Gemini, junto
+   com o schema das 7 ferramentas e o conteúdo de `system-instructions.md`
+   como instrução de sistema.
+2. Se o modelo pedir uma ou mais ferramentas, o servidor executa as funções
+   correspondentes e devolve o resultado pro modelo.
+3. Isso se repete em loop (até 6 passos por mensagem) até o modelo responder
+   só com texto, sem pedir mais ferramentas.
+4. Cada passo é registrado num log de ações que volta pro frontend, incluindo
+   dados extras (diff de arquivo, stdout/stderr) usados só pela interface —
+   sem poluir o que é enviado de volta ao modelo.
 
-```bash
-export GEMINI_API_KEY="sua-chave-aqui"
-```
-
-### Windows PowerShell
-
-```powershell
-$env:GEMINI_API_KEY="sua-chave-aqui"
-```
-
-Depois inicie o servidor:
-
-```bash
-node index.js
-```
-
-A aplicação ficará disponível, por padrão, em:
-
-```text
-http://localhost:3000
-```
-
-Você também pode definir outra porta:
-
-```bash
-PORT=8080 node index.js
-```
-
-## Configuração da API
-
-A chave é lida exclusivamente da variável:
-
-```text
-GEMINI_API_KEY
-```
-
-O servidor monta a URL da API do Gemini a partir do modelo definido em `index.js`.
-
-**Não coloque a chave diretamente no código nem a envie para o frontend.**
-
-## Como usar
-
-Abra a aplicação no navegador e envie comandos em linguagem natural, por exemplo:
-
-```text
-Liste os arquivos do workspace.
-```
-
-```text
-Crie um script hello.py que imprime Hello World e execute-o.
-```
-
-```text
-Leia o arquivo app.js e explique o que ele faz.
-```
-
-```text
-Crie um arquivo README.txt com instruções para executar o projeto.
-```
-
-O painel **workspace** permite:
-
-- listar diretórios e arquivos;
-- atualizar a árvore manualmente;
-- abrir um arquivo para visualizar seu conteúdo;
-- identificar arquivos modificados durante a sessão do chat.
-
-O botão de limpar conversa apaga apenas o histórico mantido no navegador; **os arquivos do workspace permanecem intactos**.
-
-## API HTTP
-
-### `POST /api/chat`
-
-Envia uma mensagem ao agente.
-
-Exemplo de corpo:
-
-```json
-{
-  "message": "Liste os arquivos do workspace",
-  "history": []
-}
-```
-
-A resposta pode conter:
-
-- `reply`: resposta textual do agente;
-- `history`: histórico atualizado usado na próxima interação;
-- `actions`: chamadas de ferramentas realizadas;
-- `error`: mensagem de erro, quando aplicável.
-
-### `GET /api/info`
-
-Retorna informações básicas da aplicação, atualmente incluindo o modelo utilizado:
-
-```json
-{
-  "model": "gemini-3.1-flash-lite"
-}
-```
-
-### `GET /api/files`
-
-Retorna a árvore de arquivos do `workspace/`.
-
-Arquivos e diretórios cujo nome começa com `.` são omitidos da árvore exibida pela interface.
-
-### `GET /api/file?path=<caminho>`
-
-Lê um arquivo do workspace e retorna seu conteúdo.
+Duas rotas auxiliares (`GET /api/files` e `GET /api/file`) alimentam o painel
+de workspace, permitindo ver a árvore de arquivos e o conteúdo de qualquer
+arquivo sem precisar perguntar ao agente.
 
 ## Segurança
 
-Este projeto foi construído como um **protótipo local**. O fato de as ferramentas operarem dentro de `workspace/` não transforma o sistema em um sandbox de segurança completo.
+- Todo acesso a arquivo passa por uma validação (`safePath`) que impede sair
+  da pasta `workspace/`.
+- `delete_file` é uma ação destrutiva — a confirmação antes de apagar é uma
+  instrução de comportamento (em `system-instructions.md`), não uma trava de
+  código. Ainda é possível o modelo pular essa etapa em casos raros.
+- `run_command` executa comandos de shell de verdade. Seguro pro seu próprio
+  Repl de testes, mas nunca exponha esse agente publicamente sem travar
+  melhor o que ele pode executar.
 
-Pontos importantes:
+## Testando os limites da API gratuita
 
-- `run_command` executa comandos de shell com as permissões do processo Node.js.
-- Um modelo pode solicitar comandos destrutivos ou demorados; não existe uma política de autorização humana antes da execução.
-- O timeout de `run_command` é de **15 segundos**.
-- Não há autenticação ou autorização nas rotas HTTP.
-- A chave do Gemini é usada no servidor, mas a API externa recebe a chave como parte da URL da requisição.
-- O histórico da conversa é mantido no cliente e enviado novamente a cada chamada.
-- O controle de caminho existe para impedir acesso fora do workspace, mas a implementação deve ser endurecida antes de exposição a usuários não confiáveis.
+O modelo em uso é `gemini-3.1-flash-lite` (camada gratuita do Google AI
+Studio). A barra de estatísticas mostra quantas chamadas cada mensagem
+consome — tarefas que encadeiam várias ferramentas (ex: criar pasta + criar
+arquivo + rodar) gastam várias chamadas numa mensagem só. Se você atingir o
+limite de requisições por minuto, o servidor tenta de novo automaticamente
+após uma pausa, e isso aparece como aviso no chat.
 
-**Não exponha este servidor diretamente à internet sem adicionar autenticação, isolamento de processos, limites de recursos e uma política de execução de comandos.**
+## Ideias pra evoluir
 
-## Limitações atuais
-
-- Apenas Node.js e Python 3 são considerados ambientes executáveis pelo agente.
-- O número máximo de ciclos de ferramentas por mensagem é `6`.
-- Comandos possuem timeout de 15 segundos.
-- Não há streaming da resposta do Gemini.
-- Não há persistência de conversas no servidor.
-- Não há testes automatizados no repositório atual.
-- A interface é propositalmente simples e não usa framework frontend.
-
-## Desenvolvimento
-
-Uma forma simples de trabalhar no projeto é:
-
-```bash
-npm install
-export GEMINI_API_KEY="sua-chave-aqui"
-node index.js
-```
-
-Após alterações no servidor, reinicie o processo Node.js.
-
-As alterações feitas pelo agente aparecem no diretório:
-
-```text
-workspace/
-```
-
-O código da aplicação em si fica fora desse diretório.
+- Persistência do histórico de conversa entre sessões (hoje ele vive só na
+  memória do navegador).
+- Botão de "desfazer" numa edição específica, usando o `before`/`after` que
+  o `write_file` já guarda.
+- Editar o conteúdo de um arquivo direto no preview, em vez de só visualizar.
+- Alternar entre modelos diferentes pela própria interface, sem editar código.
